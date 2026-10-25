@@ -1,12 +1,12 @@
 import torch
 
-def update_statistics_1d_v5(local_mean:torch.Tensor, local_var:torch.Tensor, global_mean:torch.Tensor, global_var:torch.Tensor, momentum:float, data:torch.Tensor, label:torch.Tensor, gamma:float, training:bool=False):
+def update_statistics_1d_v5(local_mean:torch.Tensor, local_var:torch.Tensor, global_mean:torch.Tensor, global_var:torch.Tensor, momentum:float, data:torch.Tensor, label:torch.Tensor, gamma:float, training:bool=False, cum_count:torch.Tensor=None, adapt_c:float=1.0, mom_max:float=0.25):
     if local_mean.size(0) != local_var.size(0):
         raise RuntimeError("the sizes of local_mean and local_var are inequal.")
-    
+
     if data.size(0) != label.size(0):
         raise RuntimeError("the values of the first dimension of data and label are inequal.")
-    
+
     if training:
         # for example, label: [2, 2, 2, 3, 3, 4] (N = 6)
         l:torch.Tensor = label.unique()  # [2, 3, 4]
@@ -16,11 +16,17 @@ def update_statistics_1d_v5(local_mean:torch.Tensor, local_var:torch.Tensor, glo
         label_local = l_reverse_mapping[label]  # (N,) [0, 0, 0, 1, 1, 2]
         lm = local_mean[label]  # (N, C)
             # [local_mean(0), local_mean(0), local_mean(0), local_mean(1), local_mean(1), local_mean(2)]
-        
+
         label_num = torch.zeros_like(l_mapping)  # (K',) [0, 0, 0]
         label_num.scatter_add_(0, label_local, torch.ones_like(label_local))  # (K',) [3, 2, 1]
-        mask = label_num > (1.0 / momentum)
-        m = torch.where(mask, 1.0 / label_num.float(), momentum)
+        if cum_count is not None:
+            # per-class adaptive momentum: rarely-seen classes take larger steps so
+            # their statistics actually converge with few observations
+            cum_count[l] += label_num
+            m = torch.clamp(adapt_c / cum_count[l].clamp(min=1.0), min=momentum, max=mom_max)
+        else:
+            mask = label_num > (1.0 / momentum)
+            m = torch.where(mask, 1.0 / label_num.float(), momentum)
 
         delta_pre = data - lm[..., None]   # (N, C, L)
 
@@ -43,13 +49,13 @@ def update_statistics_1d_v5(local_mean:torch.Tensor, local_var:torch.Tensor, glo
     return
 
 
-def update_statistics_2d_v5(local_mean:torch.Tensor, local_var:torch.Tensor, global_mean:torch.Tensor, global_var:torch.Tensor, momentum:float, data:torch.Tensor, label:torch.Tensor, gamma:float, training:bool=False):
+def update_statistics_2d_v5(local_mean:torch.Tensor, local_var:torch.Tensor, global_mean:torch.Tensor, global_var:torch.Tensor, momentum:float, data:torch.Tensor, label:torch.Tensor, gamma:float, training:bool=False, cum_count:torch.Tensor=None, adapt_c:float=1.0, mom_max:float=0.25):
     if local_mean.size(0) != local_var.size(0):
         raise RuntimeError("the sizes of local_mean and local_var are inequal.")
-    
+
     if data.size(0) != label.size(0):
         raise RuntimeError("the values of the first dimension of data and label are inequal.")
-    
+
     if training:
         # for example, label: [2, 2, 2, 3, 3, 4] (N = 6)
         l:torch.Tensor = label.unique()  # [2, 3, 4]
@@ -59,11 +65,17 @@ def update_statistics_2d_v5(local_mean:torch.Tensor, local_var:torch.Tensor, glo
         label_local = l_reverse_mapping[label]  # (N,) [0, 0, 0, 1, 1, 2]
         lm = local_mean[label]  # (N, C)
             # [local_mean(0), local_mean(0), local_mean(0), local_mean(1), local_mean(1), local_mean(2)]
-        
+
         label_num = torch.zeros_like(l_mapping)  # (K',) [0, 0, 0]
         label_num.scatter_add_(0, label_local, torch.ones_like(label_local))  # (K',) [3, 2, 1]
-        mask = label_num > (1.0 / momentum)
-        m = torch.where(mask, 1.0 / label_num.float(), momentum)
+        if cum_count is not None:
+            # per-class adaptive momentum: rarely-seen classes take larger steps so
+            # their statistics actually converge with few observations
+            cum_count[l] += label_num
+            m = torch.clamp(adapt_c / cum_count[l].clamp(min=1.0), min=momentum, max=mom_max)
+        else:
+            mask = label_num > (1.0 / momentum)
+            m = torch.where(mask, 1.0 / label_num.float(), momentum)
 
         delta_pre = data - lm[..., None, None]   # (N, C, H, W)
 
@@ -87,7 +99,7 @@ def update_statistics_2d_v5(local_mean:torch.Tensor, local_var:torch.Tensor, glo
 
 
 
-def update_statistics_2d_soft(local_mean:torch.Tensor, local_var:torch.Tensor, global_mean:torch.Tensor, global_var:torch.Tensor, momentum:float, data:torch.Tensor, weight:torch.Tensor, gamma:float, training:bool=False):
+def update_statistics_2d_soft(local_mean:torch.Tensor, local_var:torch.Tensor, global_mean:torch.Tensor, global_var:torch.Tensor, momentum:float, data:torch.Tensor, weight:torch.Tensor, gamma:float, training:bool=False, cum_count:torch.Tensor=None, adapt_c:float=1.0, mom_max:float=0.25):
     """Soft-label variant of update_statistics_2d_v5.
 
     ``weight`` is a (N, K) non-negative matrix holding the soft assignment of each
@@ -118,7 +130,12 @@ def update_statistics_2d_soft(local_mean:torch.Tensor, local_var:torch.Tensor, g
         n_present = nz.sum().clamp(min=1)
 
         n_safe = n_k.clamp(min=1e-8)
-        m_k = torch.where(n_k > (1.0 / momentum), 1.0 / n_safe, torch.full_like(n_safe, momentum))  # (K,)
+        if cum_count is not None:
+            # per-class adaptive momentum: rarely-seen classes take larger steps
+            cum_count += n_k
+            m_k = torch.clamp(adapt_c / cum_count.clamp(min=1.0), min=momentum, max=mom_max)  # (K,)
+        else:
+            m_k = torch.where(n_k > (1.0 / momentum), 1.0 / n_safe, torch.full_like(n_safe, momentum))  # (K,)
 
         delta_k = m_k[:, None] * S_k                      # (K, C)
         # class-wise mean update, in-place on present rows (mirrors local_mean[l] = ...)
@@ -136,7 +153,7 @@ def update_statistics_2d_soft(local_mean:torch.Tensor, local_var:torch.Tensor, g
     return
 
 
-def update_statistics_1d_soft(local_mean:torch.Tensor, local_var:torch.Tensor, global_mean:torch.Tensor, global_var:torch.Tensor, momentum:float, data:torch.Tensor, weight:torch.Tensor, gamma:float, training:bool=False):
+def update_statistics_1d_soft(local_mean:torch.Tensor, local_var:torch.Tensor, global_mean:torch.Tensor, global_var:torch.Tensor, momentum:float, data:torch.Tensor, weight:torch.Tensor, gamma:float, training:bool=False, cum_count:torch.Tensor=None, adapt_c:float=1.0, mom_max:float=0.25):
     """Soft-label variant of update_statistics_1d_v5 (see update_statistics_2d_soft)."""
     if local_mean.size(0) != local_var.size(0):
         raise RuntimeError("the sizes of local_mean and local_var are inequal.")
@@ -159,7 +176,12 @@ def update_statistics_1d_soft(local_mean:torch.Tensor, local_var:torch.Tensor, g
         n_present = nz.sum().clamp(min=1)
 
         n_safe = n_k.clamp(min=1e-8)
-        m_k = torch.where(n_k > (1.0 / momentum), 1.0 / n_safe, torch.full_like(n_safe, momentum))  # (K,)
+        if cum_count is not None:
+            # per-class adaptive momentum: rarely-seen classes take larger steps
+            cum_count += n_k
+            m_k = torch.clamp(adapt_c / cum_count.clamp(min=1.0), min=momentum, max=mom_max)  # (K,)
+        else:
+            m_k = torch.where(n_k > (1.0 / momentum), 1.0 / n_safe, torch.full_like(n_safe, momentum))  # (K,)
 
         delta_k = m_k[:, None] * S_k                      # (K, C)
         local_mean[nz] = local_mean[nz] + (1.0 - gamma) * delta_k[nz]

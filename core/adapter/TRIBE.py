@@ -134,7 +134,10 @@ class TRIBE(BaseAdapter):
             momentum_bn = NewBN(bn_layer,
                                 self.cfg.CORRUPTION.NUM_CLASS,
                                 self.cfg.ADAPTER.TRIBE.ETA,
-                                self.cfg.ADAPTER.TRIBE.GAMMA
+                                self.cfg.ADAPTER.TRIBE.GAMMA,
+                                self.cfg.ADAPTER.TRIBE.ADAPT_MOM,
+                                self.cfg.ADAPTER.TRIBE.ADAPT_MOM_C,
+                                self.cfg.ADAPTER.TRIBE.MOM_MAX
                                 )
             momentum_bn.requires_grad_(True)
             set_named_submodule(model, name, momentum_bn)

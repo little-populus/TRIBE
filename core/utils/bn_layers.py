@@ -66,13 +66,16 @@ class RobustBN2d(MomentumBN):
 
 
 class BalancedBNV5(nn.Module):
-    def __init__(self, bn_layer: nn.BatchNorm2d, num_classes=1, momentum_a=1e-01, gamma=0.0):
+    def __init__(self, bn_layer: nn.BatchNorm2d, num_classes=1, momentum_a=1e-01, gamma=0.0, adapt_mom=False, adapt_c=1.0, mom_max=0.25):
         super().__init__()
         self.num_features = bn_layer.num_features
         self.num_classes = num_classes
         self.eps = bn_layer.eps
         self.momentum = momentum_a
         self.gamma = gamma
+        self.adapt_mom = adapt_mom
+        self.adapt_c = adapt_c
+        self.mom_max = mom_max
 
         if bn_layer.track_running_stats and bn_layer.running_var is not None and bn_layer.running_mean is not None:
             self.register_buffer("global_mean", deepcopy(bn_layer.running_mean))
@@ -83,9 +86,17 @@ class BalancedBNV5(nn.Module):
         local_var = deepcopy(bn_layer.running_var)[None, ...].expand(num_classes, -1).clone()
         self.register_buffer("local_mean", local_mean)
         self.register_buffer("local_var", local_var)
+        self.register_buffer("class_count", torch.zeros(num_classes))
 
         self.label = None
         self.soft_w = None
+
+    def _mom_kwargs(self):
+        if self.adapt_mom:
+            if balanced_bn.__name__ != "core.utils.balanced_bn_pyv":
+                raise NotImplementedError("per-class adaptive momentum is only implemented in the python version of balanced_bn")
+            return {"cum_count": self.class_count, "adapt_c": self.adapt_c, "mom_max": self.mom_max}
+        return {}
 
     def forward(self, x):
         self.global_mean = self.global_mean.detach()
@@ -103,11 +114,11 @@ class BalancedRobustBN1dV5(BalancedBNV5):
         label = self.label
         soft_w = self.soft_w
         if label is not None and soft_w is not None:
-            balanced_bn.update_statistics_1d_soft(self.local_mean, self.local_var, self.global_mean, self.global_var, self.momentum, x, soft_w, self.gamma, self.training)
+            balanced_bn.update_statistics_1d_soft(self.local_mean, self.local_var, self.global_mean, self.global_var, self.momentum, x, soft_w, self.gamma, self.training, **self._mom_kwargs())
             self.label = None
             self.soft_w = None
         elif label is not None:
-            balanced_bn.update_statistics_1d_v5(self.local_mean, self.local_var, self.global_mean, self.global_var, self.momentum, x, label, self.gamma, self.training)
+            balanced_bn.update_statistics_1d_v5(self.local_mean, self.local_var, self.global_mean, self.global_var, self.momentum, x, label, self.gamma, self.training, **self._mom_kwargs())
             self.label = None
             self.soft_w = None
         else:
@@ -126,11 +137,11 @@ class BalancedRobustBN2dV5(BalancedBNV5):
         label = self.label
         soft_w = self.soft_w
         if label is not None and soft_w is not None:
-            balanced_bn.update_statistics_2d_soft(self.local_mean, self.local_var, self.global_mean, self.global_var, self.momentum, x, soft_w, self.gamma, self.training)
+            balanced_bn.update_statistics_2d_soft(self.local_mean, self.local_var, self.global_mean, self.global_var, self.momentum, x, soft_w, self.gamma, self.training, **self._mom_kwargs())
             self.label = None
             self.soft_w = None
         elif label is not None:
-            balanced_bn.update_statistics_2d_v5(self.local_mean, self.local_var, self.global_mean, self.global_var, self.momentum, x, label, self.gamma, self.training)
+            balanced_bn.update_statistics_2d_v5(self.local_mean, self.local_var, self.global_mean, self.global_var, self.momentum, x, label, self.gamma, self.training, **self._mom_kwargs())
             self.label = None
             self.soft_w = None
         else:

@@ -17,4 +17,7 @@ ADAPTER:
     CB_LOSS: False   # true: class-balanced inverse-frequency weighting of the ST / anchor losses
     CB_BETA: 0.5     # exponent of inverse-frequency weights (1.0 full inverse, 0.5 sqrt)
     ANCHOR_TYPE: 'mse'  # anchor loss type: 'mse' (original) or 'kl'
+    ADAPT_MOM: False  # true: per-class adaptive BN momentum (helps rare classes under large I.F.)
+    ADAPT_MOM_C: 1.0  # m_k = clamp(c / cum_count_k, ETA, MOM_MAX)
+    MOM_MAX: 0.25     # upper bound of the adaptive momentum
 

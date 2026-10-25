@@ -130,6 +130,11 @@ _C.ADAPTER.TRIBE.CB_LOSS = False
 _C.ADAPTER.TRIBE.CB_BETA = 0.5
 # anchor loss type: "mse" (original) or "kl" (KL divergence anchor)
 _C.ADAPTER.TRIBE.ANCHOR_TYPE = 'mse'
+# per-class adaptive momentum: rare classes get a larger BN-statistics step
+# m_k = clamp(c / cumulative_count_k, eta, mom_max)
+_C.ADAPTER.TRIBE.ADAPT_MOM = False
+_C.ADAPTER.TRIBE.ADAPT_MOM_C = 1.0
+_C.ADAPTER.TRIBE.MOM_MAX = 0.25
 
 _C.ADAPTER.COTTA = CN()
 _C.ADAPTER.COTTA.STEPS = 1
