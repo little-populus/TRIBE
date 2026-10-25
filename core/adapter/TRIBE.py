@@ -19,6 +19,43 @@ class TRIBE(BaseAdapter):
         self.transform = get_tta_transforms(cfg)
         # cumulative pseudo-label counts for online class-prior estimation (TLA)
         self.register_buffer("prior_count", torch.zeros(cfg.CORRUPTION.NUM_CLASS))
+        # shift-aware statistics re-warming
+        self.bn_layers = [m for m in self.modules() if isinstance(m, (BalancedRobustBN2dV5, BalancedRobustBN1dV5))]
+        if cfg.ADAPTER.TRIBE.SHIFT_WARMUP:
+            # modules() order: student (self.model), teacher (aux_model), anchor.
+            # The sensor must sit on the teacher path because the eval-mode
+            # inference that produces predictions runs through aux_model.
+            n_per_net = len(self.bn_layers) // 3
+            self.shift_layer = self.bn_layers[n_per_net]
+            self.shift_layer.track_shift = True
+            self.prev_batch_mean = None
+            self.batch_counter = 0
+            self.warmup_left = 0
+            for bn in self.bn_layers:
+                bn.base_momentum = bn.momentum
+
+    def _maybe_rewarm(self):
+        """Detect a domain switch from the distance between consecutive batch
+        feature means (captured by the sensor BN layer on the teacher path) and
+        temporarily boost the BN momentum so stale statistics are forgotten
+        quickly; a permanently large momentum is unstable (cf. TRIBE Table 16),
+        so the boost is only applied for a short window after each switch."""
+        cfg = self.cfg.ADAPTER.TRIBE
+        cur = self.shift_layer.last_batch_mean
+        if self.prev_batch_mean is not None:
+            dist = (cur - self.prev_batch_mean).norm().item() / (self.prev_batch_mean.norm().item() + 1e-8)
+            self.batch_counter += 1
+            if self.warmup_left > 0:
+                self.warmup_left -= 1
+                if self.warmup_left == 0:
+                    for bn in self.bn_layers:
+                        bn.momentum = bn.base_momentum
+            elif dist > cfg.SHIFT_DELTA:
+                self.warmup_left = cfg.SHIFT_WARMUP_T
+                for bn in self.bn_layers:
+                    bn.momentum = bn.base_momentum * cfg.SHIFT_BOOST
+                print(f"[shift-warmup] batch {self.batch_counter}: dist={dist:.3f} -> boost x{cfg.SHIFT_BOOST} for {cfg.SHIFT_WARMUP_T} batches", flush=True)
+        self.prev_batch_mean = cur
 
     @torch.enable_grad()
     def forward_and_adapt(self, batch_data, model, optimizer):
@@ -27,6 +64,9 @@ class TRIBE(BaseAdapter):
             ema_out = self.aux_model(batch_data)
             adj_out = self.adjust_output(ema_out)
 
+        if self.cfg.ADAPTER.TRIBE.SHIFT_WARMUP:
+            self._maybe_rewarm()
+
         # "train" mode: the de-biased output only feeds the training signal
         # (pseudo-labels -> ST loss + BN statistics); the returned prediction
         # stays micro-optimal, so class-prior correction cannot hurt the
@@ -34,6 +74,18 @@ class TRIBE(BaseAdapter):
         if self.cfg.ADAPTER.TRIBE.TLA and self.cfg.ADAPTER.TRIBE.TLA_MODE == "train":
             self.update_model(model, optimizer, batch_data, adj_out)
             return ema_out
+
+        if self.cfg.ADAPTER.TRIBE.ENSEMBLE:
+            # tri-net ensemble: mix the adapted teacher with the (frozen-weight)
+            # anchor view; the anchor is most valuable right after domain
+            # switches while the teacher statistics are still re-warming
+            with torch.no_grad():
+                self.source_model.eval()
+                anchor_out = self.source_model(batch_data)
+            w = self.cfg.ADAPTER.TRIBE.ENSEMBLE_W
+            out = (1.0 - w) * ema_out + w * anchor_out
+            self.update_model(model, optimizer, batch_data, adj_out)
+            return out
 
         self.update_model(model, optimizer, batch_data, adj_out)
 

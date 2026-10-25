@@ -25,4 +25,10 @@ ADAPTER:
     TLA_ALPHA: 1.0    # Laplace smoothing of the estimated prior
     TLA_WARMUP: 100   # pseudo-labels collected before the correction activates
     TLA_MODE: 'both'  # 'both': correct prediction + training signal; 'train': training signal only
+    SHIFT_WARMUP: False  # true: boost BN momentum for a few batches after a detected domain switch
+    SHIFT_BOOST: 8.0     # momentum multiplier during the re-warm window
+    SHIFT_WARMUP_T: 10   # number of boosted batches after each detected switch
+    SHIFT_DELTA: 0.3     # relative jump of the shift signal that triggers re-warming
+    ENSEMBLE: False      # true: blend teacher prediction with the anchor view
+    ENSEMBLE_W: 0.3      # anchor weight in the ensemble output
 

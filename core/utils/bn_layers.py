@@ -90,6 +90,24 @@ class BalancedBNV5(nn.Module):
 
         self.label = None
         self.soft_w = None
+        # shift tracking: raw batch feature mean (per-channel) of the incoming
+        # batch, captured before any update; consecutive-batch distance of this
+        # vector is a direct domain-switch signal
+        self.track_shift = False
+        self.last_batch_mean = None
+        self.last_shift = 0.0
+
+    def _record_shift(self, x):
+        if self.track_shift:
+            with torch.no_grad():
+                dims = list(range(x.dim()))
+                dims.remove(1)
+                self.last_batch_mean = x.mean(dim=dims).detach()
+                shape = [1, -1] + [1] * (x.dim() - 2)
+                gm = self.global_mean.view(shape)
+                gv = self.global_var.view(shape)
+                x_hat = (x - gm) / torch.sqrt(gv + self.eps)
+                self.last_shift = x_hat.abs().mean().item()
 
     def _mom_kwargs(self):
         if self.adapt_mom:
@@ -111,6 +129,7 @@ class BalancedRobustBN1dV5(BalancedBNV5):
         # B, N, C = x.shape
         # x = x.reshape(B * N, C, 1)
         x = x.permute(0, 2, 1)
+        self._record_shift(x)
         label = self.label
         soft_w = self.soft_w
         if label is not None and soft_w is not None:
@@ -134,6 +153,7 @@ class BalancedRobustBN1dV5(BalancedBNV5):
 class BalancedRobustBN2dV5(BalancedBNV5):
     def forward(self, x):
         super().forward(x)
+        self._record_shift(x)
         label = self.label
         soft_w = self.soft_w
         if label is not None and soft_w is not None:

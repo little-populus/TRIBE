@@ -146,6 +146,15 @@ _C.ADAPTER.TRIBE.TLA_WARMUP = 100
 # where the de-biased output is applied: "both" (prediction + training signal)
 # or "train" (training signal only, keeps the returned prediction unchanged)
 _C.ADAPTER.TRIBE.TLA_MODE = 'both'
+# shift-aware statistics re-warming: on a detected domain switch, boost the BN
+# momentum for a few batches so stale statistics are forgotten quickly
+_C.ADAPTER.TRIBE.SHIFT_WARMUP = False
+_C.ADAPTER.TRIBE.SHIFT_BOOST = 8.0
+_C.ADAPTER.TRIBE.SHIFT_WARMUP_T = 10
+_C.ADAPTER.TRIBE.SHIFT_DELTA = 0.3
+# tri-net ensemble: blend the teacher prediction with the anchor view
+_C.ADAPTER.TRIBE.ENSEMBLE = False
+_C.ADAPTER.TRIBE.ENSEMBLE_W = 0.3
 
 _C.ADAPTER.COTTA = CN()
 _C.ADAPTER.COTTA.STEPS = 1
