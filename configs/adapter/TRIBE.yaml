@@ -20,4 +20,9 @@ ADAPTER:
     ADAPT_MOM: False  # true: per-class adaptive BN momentum (helps rare classes under large I.F.)
     ADAPT_MOM_C: 1.0  # m_k = clamp(c / cum_count_k, ETA, MOM_MAX)
     MOM_MAX: 0.25     # upper bound of the adaptive momentum
+    TLA: False        # true: test-time logit adjustment with online class-prior estimation
+    TLA_TAU: 1.0      # correction strength (1.0 = Bayes-consistent logit adjustment)
+    TLA_ALPHA: 1.0    # Laplace smoothing of the estimated prior
+    TLA_WARMUP: 100   # pseudo-labels collected before the correction activates
+    TLA_MODE: 'both'  # 'both': correct prediction + training signal; 'train': training signal only
 

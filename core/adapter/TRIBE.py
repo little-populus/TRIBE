@@ -17,16 +17,65 @@ class TRIBE(BaseAdapter):
 
         self.source_model = self.build_ema(self.model)
         self.transform = get_tta_transforms(cfg)
+        # cumulative pseudo-label counts for online class-prior estimation (TLA)
+        self.register_buffer("prior_count", torch.zeros(cfg.CORRUPTION.NUM_CLASS))
 
     @torch.enable_grad()
     def forward_and_adapt(self, batch_data, model, optimizer):
         with torch.no_grad():
             self.aux_model.eval()
             ema_out = self.aux_model(batch_data)
-        
-        self.update_model(model, optimizer, batch_data, ema_out)
+            adj_out = self.adjust_output(ema_out)
 
-        return ema_out
+        # "train" mode: the de-biased output only feeds the training signal
+        # (pseudo-labels -> ST loss + BN statistics); the returned prediction
+        # stays micro-optimal, so class-prior correction cannot hurt the
+        # instance-wise metric by flipping correct head predictions.
+        if self.cfg.ADAPTER.TRIBE.TLA and self.cfg.ADAPTER.TRIBE.TLA_MODE == "train":
+            self.update_model(model, optimizer, batch_data, adj_out)
+            return ema_out
+
+        self.update_model(model, optimizer, batch_data, adj_out)
+
+        return adj_out
+
+    def adjust_output(self, logits):
+        """Test-time logit adjustment (TLA): de-bias teacher predictions with an
+        online estimate of the test class prior (Saerens et al. 2002; Menon et al. 2021).
+
+        The source model assumes a uniform prior; under a globally imbalanced stream the
+        logits are systematically biased towards head classes. Subtracting
+        tau * log(K * pi_hat) both corrects the returned prediction and yields
+        de-biased pseudo-labels for self-training and BN statistics assignment.
+        """
+        if not self.cfg.ADAPTER.TRIBE.TLA:
+            return logits
+        adj, self.prior_count = self.tla_adjust(
+            logits, self.prior_count,
+            self.cfg.ADAPTER.TRIBE.TLA_TAU,
+            self.cfg.ADAPTER.TRIBE.TLA_ALPHA,
+            self.cfg.ADAPTER.TRIBE.TLA_WARMUP,
+        )
+        return adj
+
+    @staticmethod
+    def tla_adjust(logits: torch.Tensor, prior_count: torch.Tensor, tau: float, alpha: float, warmup: int):
+        """Pure function form of test-time logit adjustment (unit-testable).
+
+        logits: (B, K) raw teacher outputs; prior_count: (K,) cumulative pseudo-label counts.
+        Returns (adjusted_logits, updated_prior_count). During the first ``warmup``
+        pseudo-labels the estimate is too noisy to correct with, but counts are still collected.
+        """
+        num_class = logits.size(1)
+        pred = logits.argmax(dim=-1)
+        count = torch.bincount(pred, minlength=num_class).to(logits.dtype)
+        if prior_count.sum() < warmup:
+            return logits, prior_count + count
+        prior = (prior_count + alpha) / (prior_count.sum() + alpha * num_class)
+        adjusted = logits - tau * torch.log(num_class * prior)
+        adj_pred = adjusted.argmax(dim=-1)
+        adj_count = torch.bincount(adj_pred, minlength=num_class).to(logits.dtype)
+        return adjusted, prior_count + adj_count
     
 
     def update_model(self, model, optimizer, batch_data, logit):
@@ -58,7 +107,13 @@ class TRIBE(BaseAdapter):
             # an empty mask)
             return
 
-        per_sup = torch.nn.functional.cross_entropy(stu_sup_out, ema_sup_out.argmax(dim=-1), reduction='none')
+        # with TLA the de-biased pseudo-labels (from the adjusted eval-mode output)
+        # also serve as the self-training target; otherwise keep the original target
+        if self.cfg.ADAPTER.TRIBE.TLA:
+            pseudo_target = p_l
+        else:
+            pseudo_target = ema_sup_out.argmax(dim=-1)
+        per_sup = torch.nn.functional.cross_entropy(stu_sup_out, pseudo_target, reduction='none')
 
         with torch.no_grad():
             self.set_bn_label(self.source_model, p_l, soft_w)
@@ -74,7 +129,7 @@ class TRIBE(BaseAdapter):
 
         sample_w = None
         if self.cfg.ADAPTER.TRIBE.CB_LOSS:
-            cls = ema_sup_out.argmax(dim=-1)[entropy_mask]
+            cls = pseudo_target[entropy_mask]
             cnt = torch.bincount(cls, minlength=self.cfg.CORRUPTION.NUM_CLASS).float()
             sample_w = (1.0 / (cnt[cls] + 1e-8)) ** self.cfg.ADAPTER.TRIBE.CB_BETA
             sample_w = sample_w / sample_w.mean()

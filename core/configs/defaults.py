@@ -135,6 +135,17 @@ _C.ADAPTER.TRIBE.ANCHOR_TYPE = 'mse'
 _C.ADAPTER.TRIBE.ADAPT_MOM = False
 _C.ADAPTER.TRIBE.ADAPT_MOM_C = 1.0
 _C.ADAPTER.TRIBE.MOM_MAX = 0.25
+# test-time logit adjustment with online class-prior estimation
+_C.ADAPTER.TRIBE.TLA = False
+# correction strength tau (1.0 = Bayes-consistent logit adjustment)
+_C.ADAPTER.TRIBE.TLA_TAU = 1.0
+# Laplace smoothing of the estimated prior
+_C.ADAPTER.TRIBE.TLA_ALPHA = 1.0
+# number of pseudo-labels collected before the correction kicks in
+_C.ADAPTER.TRIBE.TLA_WARMUP = 100
+# where the de-biased output is applied: "both" (prediction + training signal)
+# or "train" (training signal only, keeps the returned prediction unchanged)
+_C.ADAPTER.TRIBE.TLA_MODE = 'both'
 
 _C.ADAPTER.COTTA = CN()
 _C.ADAPTER.COTTA.STEPS = 1
