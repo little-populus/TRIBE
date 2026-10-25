@@ -1,0 +1,44 @@
+# ---- Virtual environment ----
+exp/
+.venv/
+venv/
+
+# ---- Datasets & checkpoints (large binaries, not for git) ----
+/datasets/
+ckpt/
+*.pt
+*.pth
+*.npy
+*.tar
+
+# ---- Experiment outputs ----
+TRIBE/
+logs/
+runs/
+output/
+
+# ---- Python artifacts ----
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg-info/
+build/
+dist/
+*.egg
+
+# ---- C++ wrapper build artifacts ----
+cpp_wrapper/balanced_bn/build/
+cpp_wrapper/balanced_bn/*.egg-info/
+
+# ---- IDE / tooling ----
+.vscode/
+.idea/
+.workbuddy/
+*.swp
+*.swo
+.DS_Store
+
+# ---- Misc ----
+*.log
+gdrive_page.html
