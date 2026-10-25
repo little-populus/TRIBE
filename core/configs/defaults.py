@@ -119,6 +119,17 @@ _C.ADAPTER.TRIBE.ETA = 0.005
 _C.ADAPTER.TRIBE.GAMMA = 0.0
 _C.ADAPTER.TRIBE.LAMBDA = 0.5
 _C.ADAPTER.TRIBE.H0 = 0.05
+# ---- improvement switches (defaults keep the original TRIBE behaviour) ----
+# soft (probability-weighted) pseudo-label assignment for Balanced BN statistics
+_C.ADAPTER.TRIBE.SOFT_BN = False
+# temperature applied to teacher logits before the softmax used as soft weights
+_C.ADAPTER.TRIBE.SOFT_TAU = 1.0
+# class-balanced inverse-frequency weighting of the self-training / anchor losses
+_C.ADAPTER.TRIBE.CB_LOSS = False
+# exponent for inverse-frequency weights (1.0 = full inverse, 0.5 = sqrt)
+_C.ADAPTER.TRIBE.CB_BETA = 0.5
+# anchor loss type: "mse" (original) or "kl" (KL divergence anchor)
+_C.ADAPTER.TRIBE.ANCHOR_TYPE = 'mse'
 
 _C.ADAPTER.COTTA = CN()
 _C.ADAPTER.COTTA.STEPS = 1

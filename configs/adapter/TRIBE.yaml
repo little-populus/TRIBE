@@ -11,4 +11,10 @@ ADAPTER:
     GAMMA: 0.     # 0.0 on CIFAR10, 0.1 on CIFAR100, 0.5 on ImageNet1K. More details please see the paper. [Little sensitive]
     H0: 0.05       # 0.05 on CIFAR10, 0.2 on CIFAR100, 0.4 on ImageNet1K. Entropy threshold is related with the accuracy of source domain. [Not sensitive]
     LAMBDA: 0.5    # This term is usually constant as 0.5
+    # ---- improvement switches (defaults reproduce the original TRIBE) ----
+    SOFT_BN: False   # true: probability-weighted (soft) pseudo labels for Balanced BN statistics
+    SOFT_TAU: 1.0    # temperature on teacher logits for the soft weights (<1 sharper, >1 softer)
+    CB_LOSS: False   # true: class-balanced inverse-frequency weighting of the ST / anchor losses
+    CB_BETA: 0.5     # exponent of inverse-frequency weights (1.0 full inverse, 0.5 sqrt)
+    ANCHOR_TYPE: 'mse'  # anchor loss type: 'mse' (original) or 'kl'
 

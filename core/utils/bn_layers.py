@@ -85,6 +85,7 @@ class BalancedBNV5(nn.Module):
         self.register_buffer("local_var", local_var)
 
         self.label = None
+        self.soft_w = None
 
     def forward(self, x):
         self.global_mean = self.global_mean.detach()
@@ -92,7 +93,7 @@ class BalancedBNV5(nn.Module):
         self.local_mean = self.local_mean.detach()
         self.local_var = self.local_var.detach()
 
-   
+
 class BalancedRobustBN1dV5(BalancedBNV5):
     def forward(self, x):
         super().forward(x)
@@ -100,9 +101,15 @@ class BalancedRobustBN1dV5(BalancedBNV5):
         # x = x.reshape(B * N, C, 1)
         x = x.permute(0, 2, 1)
         label = self.label
-        if label is not None:
+        soft_w = self.soft_w
+        if label is not None and soft_w is not None:
+            balanced_bn.update_statistics_1d_soft(self.local_mean, self.local_var, self.global_mean, self.global_var, self.momentum, x, soft_w, self.gamma, self.training)
+            self.label = None
+            self.soft_w = None
+        elif label is not None:
             balanced_bn.update_statistics_1d_v5(self.local_mean, self.local_var, self.global_mean, self.global_var, self.momentum, x, label, self.gamma, self.training)
             self.label = None
+            self.soft_w = None
         else:
             if self.training:
                 b_var, b_mean = torch.var_mean(x, dim=[0, 2], unbiased=False, keepdim=False)  # (C,)
@@ -117,16 +124,22 @@ class BalancedRobustBN2dV5(BalancedBNV5):
     def forward(self, x):
         super().forward(x)
         label = self.label
-        if label is not None:
+        soft_w = self.soft_w
+        if label is not None and soft_w is not None:
+            balanced_bn.update_statistics_2d_soft(self.local_mean, self.local_var, self.global_mean, self.global_var, self.momentum, x, soft_w, self.gamma, self.training)
+            self.label = None
+            self.soft_w = None
+        elif label is not None:
             balanced_bn.update_statistics_2d_v5(self.local_mean, self.local_var, self.global_mean, self.global_var, self.momentum, x, label, self.gamma, self.training)
             self.label = None
+            self.soft_w = None
         else:
             if self.training:
                 b_var, b_mean = torch.var_mean(x, dim=[0, 2, 3], unbiased=False, keepdim=False)  # (C,)
                 self.global_mean = (1 - self.momentum) * self.global_mean + self.momentum * b_mean
                 self.global_var = (1 - self.momentum) * self.global_var + self.momentum * b_var
         x = (x - self.global_mean[None, :, None, None]) / torch.sqrt(self.global_var[None, :, None, None] + self.eps)
-        return self.weight[None, :, None, None] * x + self.bias[None, :, None, None] 
+        return self.weight[None, :, None, None] * x + self.bias[None, :, None, None]
 
 
 
